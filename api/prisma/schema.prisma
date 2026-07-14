@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  // url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String
+  email     String   @unique
+  password  String
+  phone     String?  @unique
+  roleId    String   @db.ObjectId
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  role   Role    @relation(fields: [roleId], references: [id])
+  leaves Leave[]
+
+  @@index([roleId])
+  @@map("users")
+}
+
+model Role {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  name      String   @unique
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  users User[]
+
+  @@map("roles")
+}
+
+model PasswordReset {
+  id         String   @id @default(auto()) @map("_id") @db.ObjectId
+  email      String
+  otp        String
+  isVerified Boolean  @default(false) @map("is_verified")
+  expiresAt  DateTime @map("expires_at")
+  createdBy  String?
+  createdAt  DateTime @default(now())
+  updatedBy  String?
+  updatedAt  DateTime @updatedAt
+
+  @@map("password_reset")
+}
+
+model Leave {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  title     String
+  reason    String?
+  status    String   @default("Pending")
+  startDate DateTime
+  endDate   DateTime
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("leave")
+}

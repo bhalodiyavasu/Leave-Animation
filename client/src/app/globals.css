@@ -1,0 +1,210 @@
+@import "tailwindcss";
+
+@theme inline {
+  --breakpoint-xs: 30rem;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-foreground: var(--foreground);
+
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-soft: var(--destructive-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Existing ocean theme colors */
+  --color-abyss: var(--ocean-abyss);
+  --color-deep: var(--ocean-deep);
+  --color-mid: var(--ocean-mid);
+  --color-ocean: var(--ocean-blue);
+  --color-teal: var(--ocean-teal);
+  --color-foam: var(--ocean-foam);
+  --color-glass: var(--ocean-glass);
+  --color-glass-border: var(--ocean-glass-border);
+}
+
+:root {
+  --radius: 13px;
+
+  --background: #020c1b;
+  --background-secondary: #030f26;
+  --foreground: #e0f2fe;
+
+  --card: #0b2545;
+  --card-foreground: #e0f2fe;
+
+  --popover: #0b2545;
+  --popover-foreground: #e0f2fe;
+
+  --primary: #00b4d8;
+  --primary-foreground: #020c1b;
+
+  --secondary: #0b2545;
+  --secondary-foreground: #e0f2fe;
+
+  --muted: #0b2545;
+  --muted-foreground: #7dd3fc;
+
+  --accent: #0b2545;
+  --accent-foreground: #e0f2fe;
+
+  --destructive: #ef4444;
+  --destructive-soft: rgba(239, 68, 68, 0.2);
+  --success: #10b981;
+  --success-soft: rgba(16, 185, 129, 0.2);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.2);
+
+  --border: #0077b6;
+  --input: #0b2545;
+  --ring: #00f5d4;
+
+  /* Existing ocean theme variables */
+  --ocean-abyss: #010813;
+  --ocean-deep: #030f26;
+  --ocean-mid: #0b2545;
+  --ocean-blue: #0077b6;
+  --ocean-teal: #00b4d8;
+  --ocean-foam: #00f5d4;
+  --ocean-glass: rgba(11, 37, 69, 0.4);
+  --ocean-glass-border: rgba(0, 245, 212, 0.15);
+  --ocean-glow: 0 0 25px rgba(0, 245, 212, 0.4);
+}
+
+.dark {
+  --background: #010813;
+  --background-secondary: #020c1b;
+  --foreground: #e0f2fe;
+
+  --card: #030f26;
+  --card-foreground: #e0f2fe;
+
+  --popover: #030f26;
+  --popover-foreground: #e0f2fe;
+
+  --primary: #00f5d4;
+  --primary-foreground: #010813;
+
+  --secondary: #0b2545;
+  --secondary-foreground: #e0f2fe;
+
+  --muted: #030f26;
+  --muted-foreground: #7dd3fc;
+
+  --accent: #030f26;
+  --accent-foreground: #e0f2fe;
+
+  --destructive: #ff4848;
+  --destructive-soft: rgba(254, 93, 93, 0.2);
+  --success: #5bc276;
+  --success-soft: rgba(107, 226, 139, 0.2);
+  --warning: #f6c36a;
+  --warning-soft: rgba(246, 195, 106, 0.2);
+
+  --border: #0077b6;
+  --input: #0b2545;
+  --ring: #00f5d4;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  body {
+    @apply bg-background text-foreground overflow-x-hidden;
+  }
+}
+
+body {
+  background: radial-gradient(circle at top, #0f4c5c 0%, #030f26 60%, #010813 100%) !important;
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+  overflow-x: hidden;
+  min-height: 100vh;
+}
+
+/* Beautiful custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--ocean-abyss);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--ocean-blue);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ocean-foam);
+}
+
+
+/* Glassmorphism glass card */
+.glass-card {
+  background: var(--ocean-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--ocean-glass-border);
+  box-shadow: 0 10px 40px 0 rgba(0, 0, 0, 0.5);
+}
+
+/* Glow effects */
+.glow-on-hover:hover {
+  box-shadow: var(--ocean-glow);
+  border-color: var(--ocean-foam);
+  text-shadow: 0 0 8px rgba(0, 245, 212, 0.5);
+}
+
+.glow-btn {
+  background: linear-gradient(135deg, #0077b6 0%, #00b4d8 50%, #00f5d4 100%);
+  color: #03045e !important;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 5px 20px rgba(0, 245, 212, 0.35);
+  transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.glow-btn:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 8px 30px rgba(0, 245, 212, 0.7);
+  border-color: var(--ocean-foam);
+}
+
+.glow-btn:active {
+  transform: translateY(-1px);
+}

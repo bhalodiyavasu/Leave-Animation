@@ -1,0 +1,1 @@
+export const LEAVE_API_HOST = process.env.NEXT_PUBLIC_LEAVE_MANAGEMENT_API || "http://192.168.2.167:3030";
