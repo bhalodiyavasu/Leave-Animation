@@ -24,13 +24,13 @@ export class LeaveService {
     private readonly contextBuilder: ContextBuilderService,
   ) {}
   async create(createLeaveDto: CreateLeaveDto, userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
 
     if (!user) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
 
-    const leave = await this.prisma.leave.create({
+    const leave = await this.prisma.client.leave.create({
       data: {
         title: createLeaveDto.title,
         reason: createLeaveDto.reason || null,
@@ -43,7 +43,7 @@ export class LeaveService {
       },
     });
 
-    this.leaveGateway.emitLeaveCreate(leave);
+    this.leaveGateway.emitLeaveCreate(leave).catch(() => {});
 
     return { data: leave, message: 'Leave created successfully' };
   }
@@ -56,7 +56,7 @@ export class LeaveService {
     if (userId) where.userId = userId;
 
     const [data, total] = await Promise.all([
-      this.prisma.leave.findMany({
+      this.prisma.client.leave.findMany({
         where,
         take: Number(limit),
         skip: Number(offset),
@@ -72,7 +72,7 @@ export class LeaveService {
           },
         },
       }),
-      this.prisma.leave.count({ where }),
+      this.prisma.client.leave.count({ where }),
     ]);
 
     return {
@@ -83,7 +83,7 @@ export class LeaveService {
   }
 
   async findOne(id: string) {
-    const leaveCheck = await this.prisma.leave.findFirst({
+    const leaveCheck = await this.prisma.client.leave.findFirst({
       where: { id },
       include: { user: true },
     });
@@ -95,7 +95,7 @@ export class LeaveService {
   }
 
   async update(id: string, updateLeaveDto: UpdateLeaveDto) {
-    const leaveCheck = await this.prisma.leave.findFirst({ where: { id } });
+    const leaveCheck = await this.prisma.client.leave.findFirst({ where: { id } });
     if (!leaveCheck) {
       throw new BadRequestException('Leave not found with this id');
     }
@@ -109,30 +109,30 @@ export class LeaveService {
     }
 
     if (leaveCheck.status === LeaveStatus.PENDING) {
-      const data = await this.prisma.leave.update({
+      const data = await this.prisma.client.leave.update({
         where: { id },
         data: updateLeaveDto,
       });
 
-      this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data);
+      this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data).catch(() => {});
 
       return { data, message: 'Leave updated successfully' };
     }
   }
 
   async remove(id: string) {
-    const leaveCheck = await this.prisma.leave.findFirst({ where: { id } });
+    const leaveCheck = await this.prisma.client.leave.findFirst({ where: { id } });
     if (!leaveCheck) {
       throw new BadRequestException('Leave not found with this id');
     }
 
-    const data = await this.prisma.leave.update({
+    const data = await this.prisma.client.leave.update({
       where: { id },
       data: {
         status: LeaveStatus.DELETED,
       },
     });
-    this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data);
+    this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data).catch(() => {});
     return { data, message: 'Leave deleted successfully' };
   }
 
@@ -144,7 +144,7 @@ export class LeaveService {
 
     this.logger.log(`Querying leaves with filters: ${JSON.stringify(where)}`);
 
-    const leaves = await this.prisma.leave.findMany({
+    const leaves = await this.prisma.client.leave.findMany({
       where,
       include: {
         user: {
@@ -168,7 +168,7 @@ export class LeaveService {
     // Always scope updates to PENDING leaves
     where.status = LeaveStatus.PENDING;
 
-    const targets = await this.prisma.leave.findMany({
+    const targets = await this.prisma.client.leave.findMany({
       where,
       select: { id: true },
     });
@@ -183,7 +183,7 @@ export class LeaveService {
 
     const ids = targets.map((l) => l.id);
 
-    await this.prisma.leave.updateMany({
+    await this.prisma.client.leave.updateMany({
       where: { id: { in: ids } },
       data: {
         status: LeaveStatus.APPROVED,
@@ -191,7 +191,7 @@ export class LeaveService {
     });
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.leave.findMany({
+    const updatedLeaves = await this.prisma.client.leave.findMany({
       where: { id: { in: ids } },
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { startDate: 'asc' },
@@ -207,7 +207,7 @@ export class LeaveService {
     const where = await this.buildWhereClause(filters);
     where.status = LeaveStatus.PENDING;
 
-    const targets = await this.prisma.leave.findMany({
+    const targets = await this.prisma.client.leave.findMany({
       where,
       select: { id: true },
     });
@@ -222,7 +222,7 @@ export class LeaveService {
 
     const ids = targets.map((l) => l.id);
 
-    await this.prisma.leave.updateMany({
+    await this.prisma.client.leave.updateMany({
       where: { id: { in: ids } },
       data: {
         status: LeaveStatus.REJECTED,
@@ -230,7 +230,7 @@ export class LeaveService {
     });
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.leave.findMany({
+    const updatedLeaves = await this.prisma.client.leave.findMany({
       where: { id: { in: ids } },
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { startDate: 'asc' },
@@ -246,7 +246,7 @@ export class LeaveService {
     const where = await this.buildWhereClause(filters);
     where.status = { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] } as any;
 
-    const targets = await this.prisma.leave.findMany({
+    const targets = await this.prisma.client.leave.findMany({
       where,
       select: { id: true },
     });
@@ -257,13 +257,13 @@ export class LeaveService {
 
     const ids = targets.map((l) => l.id);
 
-    await this.prisma.leave.updateMany({
+    await this.prisma.client.leave.updateMany({
       where: { id: { in: ids } },
       data: { status: LeaveStatus.DELETED },
     });
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.leave.findMany({
+    const updatedLeaves = await this.prisma.client.leave.findMany({
       where: { id: { in: ids } },
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { startDate: 'asc' },
@@ -280,7 +280,7 @@ export class LeaveService {
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    return this.prisma.leave.findMany({
+    return this.prisma.client.leave.findMany({
       where: {
         status: LeaveStatus.APPROVED,
         startDate: { lte: endOfDay },
@@ -321,7 +321,7 @@ export class LeaveService {
 
     // User names filter (lookup IDs first)
     if (filters.userNames?.length) {
-      const users = await this.prisma.user.findMany({
+      const users = await this.prisma.client.user.findMany({
         where: {
           name: {
             in: filters.userNames,
@@ -335,7 +335,7 @@ export class LeaveService {
 
     // Department filter (lookup user IDs first)
     if (filters.department) {
-      const users = await this.prisma.user.findMany({
+      const users = await this.prisma.client.user.findMany({
         select: { id: true },
       });
       where.userId = { in: users.map((u) => u.id) };

@@ -3,23 +3,22 @@ import {
   Injectable,
   InternalServerErrorException,
   UnauthorizedException,
-} from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
-import * as jwt from 'jsonwebtoken';
-import * as nodemailer from 'nodemailer';
-import { PrismaService } from 'src/prisma/prisma.service';
+} from "@nestjs/common";
+import * as bcrypt from "bcryptjs";
+import * as jwt from "jsonwebtoken";
+import { Resend } from "resend";
+import { PrismaService } from "src/prisma/prisma.service";
 import {
-  EMAIL_PASS,
-  EMAIL_USER,
   OTP_EXPIRY_TIME_IN_MINS,
-} from 'src/shared/constants/constant';
-import { EXPIRY_TIME_IN_MINS, JWT_SECRET } from 'src/shared/constants/jwt';
-import { HelperServices } from 'src/shared/helper/helper.service';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { ForgotPasswordAuthDto } from './dto/forgot-password.dto';
-import { LoginAuthDto } from './dto/login-auth.dto';
-import { RegisterAuthUserDto } from './dto/register-user.dto';
-import { VerifyOtpAuthDto } from './dto/verify-otp-auth.dto';
+  RESEND_FROM_EMAIL,
+} from "src/shared/constants/constant";
+import { EXPIRY_TIME_IN_MINS, JWT_SECRET } from "src/shared/constants/jwt";
+import { HelperServices } from "src/shared/helper/helper.service";
+import { ChangePasswordDto } from "./dto/change-password.dto";
+import { ForgotPasswordAuthDto } from "./dto/forgot-password.dto";
+import { LoginAuthDto } from "./dto/login-auth.dto";
+import { RegisterAuthUserDto } from "./dto/register-user.dto";
+import { VerifyOtpAuthDto } from "./dto/verify-otp-auth.dto";
 
 @Injectable()
 export class AuthService {
@@ -30,19 +29,13 @@ export class AuthService {
 
   private jwtSecret = JWT_SECRET;
 
-  private transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: {
-      user: EMAIL_USER,
-      pass: EMAIL_PASS,
-    },
-  });
+  private resend = new Resend(process.env.RESEND_API_KEY);
 
   async login(loginAuthDto: LoginAuthDto) {
     const { email, password } = loginAuthDto;
 
     try {
-      const user = await this.prisma.user.findUnique({
+      const user = await this.prisma.client.user.findUnique({
         where: {
           email,
         },
@@ -57,13 +50,13 @@ export class AuthService {
       });
 
       if (!user) {
-        throw new UnauthorizedException('User not found');
+        throw new UnauthorizedException("User not found");
       }
 
       const isMatch = await bcrypt.compare(password, user.password);
 
       if (!isMatch) {
-        throw new UnauthorizedException('Invalid credentials');
+        throw new UnauthorizedException("Invalid credentials");
       }
 
       const payload = {
@@ -86,13 +79,13 @@ export class AuthService {
       return {
         token,
         user: userWithoutPassword,
-        message: 'Login successfully!',
+        message: "Login successfully!",
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
-      throw new InternalServerErrorException('Something went wrong');
+      throw new InternalServerErrorException("Something went wrong");
     }
   }
 
@@ -101,25 +94,25 @@ export class AuthService {
       registerAuthUserDto;
 
     try {
-      const user = await this.prisma.user.findUnique({
+      const user = await this.prisma.client.user.findUnique({
         where: {
           email,
         },
       });
 
       if (user) {
-        throw new UnauthorizedException('User already exists with this email');
+        throw new UnauthorizedException("User already exists with this email");
       }
 
       if (password !== confirmPassword) {
         throw new UnauthorizedException(
-          'Password and confirm password do not match',
+          "Password and confirm password do not match",
         );
       }
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      const createdUser = await this.prisma.user.create({
+      const createdUser = await this.prisma.client.user.create({
         data: {
           email,
           password: hashedPassword,
@@ -128,10 +121,10 @@ export class AuthService {
           role: {
             connectOrCreate: {
               where: {
-                name: 'User',
+                name: "User",
               },
               create: {
-                name: 'User',
+                name: "User",
               },
             },
           },
@@ -157,13 +150,13 @@ export class AuthService {
       return {
         token,
         user: userWithoutPassword,
-        message: 'User registered successfully!',
+        message: "User registered successfully!",
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
-      throw new InternalServerErrorException('Something went wrong');
+      throw new InternalServerErrorException("Something went wrong");
     }
   }
 
@@ -171,14 +164,14 @@ export class AuthService {
     const { email } = forgotPasswordAuthDto;
 
     try {
-      const user = await this.prisma.user.findFirst({
+      const user = await this.prisma.client.user.findFirst({
         where: {
           email,
         },
       });
 
       if (!user) {
-        throw new UnauthorizedException('User not found');
+        throw new UnauthorizedException("User not found");
       }
 
       const otp = this.helperService.generateOTP();
@@ -186,14 +179,15 @@ export class AuthService {
         Date.now() + OTP_EXPIRY_TIME_IN_MINS * 60 * 1000,
       );
 
-      const existPasswordReset = await this.prisma.passwordReset.findFirst({
-        where: {
-          email,
-        },
-      });
+      const existPasswordReset =
+        await this.prisma.client.passwordReset.findFirst({
+          where: {
+            email,
+          },
+        });
 
       if (existPasswordReset) {
-        await this.prisma.passwordReset.update({
+        await this.prisma.client.passwordReset.update({
           where: {
             id: existPasswordReset.id,
           },
@@ -204,7 +198,7 @@ export class AuthService {
           },
         });
       } else {
-        await this.prisma.passwordReset.create({
+        await this.prisma.client.passwordReset.create({
           data: {
             email,
             otp,
@@ -213,22 +207,22 @@ export class AuthService {
         });
       }
 
-      await this.transporter.sendMail({
-        from: process.env.EMAIL_USER,
+      await this.resend.emails.send({
+        from: RESEND_FROM_EMAIL,
         to: email,
-        subject: 'Password Reset OTP',
+        subject: "Password Reset OTP",
         text: `Your OTP code is ${otp}. It will expire in 10 minutes.`,
       });
 
       return {
-        message: 'OTP sent successfully!',
+        message: "OTP sent successfully!",
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
       const errorMessage =
-        error instanceof Error ? error.message : 'Something went wrong';
+        error instanceof Error ? error.message : "Something went wrong";
       throw new InternalServerErrorException(errorMessage);
     }
   }
@@ -237,38 +231,39 @@ export class AuthService {
     const { email, otp } = verifyOtpAuthDto;
 
     try {
-      const existPasswordReset = await this.prisma.passwordReset.findFirst({
-        where: {
-          email,
-          otp,
-        },
-      });
+      const existPasswordReset =
+        await this.prisma.client.passwordReset.findFirst({
+          where: {
+            email,
+            otp,
+          },
+        });
 
       if (!existPasswordReset) {
-        throw new UnauthorizedException('Invalid OTP');
+        throw new UnauthorizedException("Invalid OTP");
       }
 
       if (existPasswordReset.expiresAt < new Date()) {
-        throw new UnauthorizedException('OTP has expired');
+        throw new UnauthorizedException("OTP has expired");
       }
 
-      await this.prisma.passwordReset.update({
+      await this.prisma.client.passwordReset.update({
         where: { id: existPasswordReset.id },
         data: {
           isVerified: true,
-          otp: '',
+          otp: "",
         },
       });
 
       return {
-        message: 'OTP verified successfully!',
+        message: "OTP verified successfully!",
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
       const errorMessage =
-        error instanceof Error ? error.message : 'Something went wrong';
+        error instanceof Error ? error.message : "Something went wrong";
       throw new InternalServerErrorException(errorMessage);
     }
   }
@@ -277,27 +272,28 @@ export class AuthService {
     const { email, newPassword, confirmPassword } = changePasswordDto;
 
     try {
-      const existPasswordReset = await this.prisma.passwordReset.findFirst({
-        where: {
-          email,
-        },
-      });
+      const existPasswordReset =
+        await this.prisma.client.passwordReset.findFirst({
+          where: {
+            email,
+          },
+        });
 
       if (!existPasswordReset) {
-        throw new UnauthorizedException('User not found');
+        throw new UnauthorizedException("User not found");
       }
 
       if (!existPasswordReset.isVerified) {
-        throw new UnauthorizedException('OTP not verified');
+        throw new UnauthorizedException("OTP not verified");
       }
 
       if (newPassword !== confirmPassword) {
-        throw new UnauthorizedException('Passwords do not match');
+        throw new UnauthorizedException("Passwords do not match");
       }
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      await this.prisma.user.update({
+      await this.prisma.client.user.update({
         where: {
           email,
         },
@@ -306,7 +302,7 @@ export class AuthService {
         },
       });
 
-      await this.prisma.passwordReset.update({
+      await this.prisma.client.passwordReset.update({
         where: {
           id: existPasswordReset.id,
         },
@@ -316,14 +312,14 @@ export class AuthService {
       });
 
       return {
-        message: 'Password changed successfully!',
+        message: "Password changed successfully!",
       };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
       }
       const errorMessage =
-        error instanceof Error ? error.message : 'Something went wrong';
+        error instanceof Error ? error.message : "Something went wrong";
       throw new InternalServerErrorException(errorMessage);
     }
   }
@@ -331,10 +327,10 @@ export class AuthService {
   async validateUser(payload) {
     const userId = payload?.id || payload?.sub || payload?.userId;
     if (!userId) {
-      throw new UnauthorizedException('Token payload is missing user id');
+      throw new UnauthorizedException("Token payload is missing user id");
     }
 
-    const user = await this.prisma.user.findUnique({
+    const user = await this.prisma.client.user.findUnique({
       where: { id: userId },
     });
 

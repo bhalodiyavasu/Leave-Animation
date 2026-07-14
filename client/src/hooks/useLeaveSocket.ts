@@ -1,10 +1,9 @@
 import { useEffect } from "react";
-import { io, Socket } from "socket.io-client";
 import { useDispatch } from "react-redux";
 import { leaveApi } from "@/store/action";
 import { LEAVE_API_HOST } from "../constant/constant";
 
-let socket: Socket | null = null;
+let socket: WebSocket | null = null;
 
 export default function useLeaveSocket(userId: string | undefined, role?: string) {
   const dispatch = useDispatch();
@@ -12,21 +11,15 @@ export default function useLeaveSocket(userId: string | undefined, role?: string
   useEffect(() => {
     if (!userId || !role) return;
 
-    socket = io(`${LEAVE_API_HOST}/leave`, {
-      query: { userId, role },
-      withCredentials: true,
-    });
+    const wsUrl = `${LEAVE_API_HOST.replace(/^http/, "ws")}/ws/leave?userId=${encodeURIComponent(userId)}&role=${encodeURIComponent(role)}`;
+    socket = new WebSocket(wsUrl);
 
-    socket.on("leaveUpdate", (leave) => {
+    socket.onmessage = () => {
       dispatch(leaveApi.util.invalidateTags(["Leave"]));
-    });
-
-    socket.on("leaveCreate", (leave) => {
-      dispatch(leaveApi.util.invalidateTags(["Leave"]));
-    });
+    };
 
     return () => {
-      socket?.disconnect();
+      socket?.close();
       socket = null;
     };
   }, [userId, role, dispatch]);

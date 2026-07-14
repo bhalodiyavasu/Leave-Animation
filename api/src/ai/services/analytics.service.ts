@@ -37,20 +37,20 @@ export class AnalyticsService {
       totalUsers,
       usersOnLeaveToday,
     ] = await Promise.all([
-      this.prisma.leave.count({ where: baseWhere }),
-      this.prisma.leave.count({
+      this.prisma.client.leave.count({ where: baseWhere }),
+      this.prisma.client.leave.count({
         where: { ...baseWhere, status: LeaveStatus.PENDING },
       }),
-      this.prisma.leave.count({
+      this.prisma.client.leave.count({
         where: { ...baseWhere, status: LeaveStatus.APPROVED },
       }),
-      this.prisma.leave.count({
+      this.prisma.client.leave.count({
         where: { ...baseWhere, status: LeaveStatus.REJECTED },
       }),
-      this.prisma.leave.count({
+      this.prisma.client.leave.count({
         where: { ...baseWhere, status: LeaveStatus.DELETED },
       }),
-      this.prisma.user.count({ where: { role: { name: UserRole.CUSTOMER } } }),
+      this.prisma.client.user.count({ where: { role: { name: UserRole.CUSTOMER } } }),
       this.getUsersOnLeaveTodayCount(),
     ]);
 
@@ -78,7 +78,7 @@ export class AnalyticsService {
     const startDay = new Date(now.setHours(0, 0, 0, 0));
     const endDay = new Date(now.setHours(23, 59, 59, 999));
 
-    return this.prisma.leave.count({
+    return this.prisma.client.leave.count({
       where: {
         status: LeaveStatus.APPROVED,
         startDate: { lte: endDay },

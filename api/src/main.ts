@@ -2,9 +2,8 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { IoAdapter } from '@nestjs/platform-socket.io';
 
-async function bootstrap() {
+export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: true,
@@ -31,8 +30,9 @@ async function bootstrap() {
     }),
   );
 
-  app.useWebSocketAdapter(new IoAdapter(app));
-
   await app.listen(process.env.PORT ?? 3030);
 }
-void bootstrap();
+
+if (require.main === module) {
+  void bootstrap();
+}

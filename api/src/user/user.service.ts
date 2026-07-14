@@ -2,14 +2,14 @@ import {
   BadRequestException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import * as bcrypt from 'bcrypt';
-import { Filters } from 'src/ai/interfaces/filter.interface';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { LeaveStatus } from 'src/shared/constants/constant';
-import { CreateUserDto } from './dto/create-user.dto';
-import { QueryUserDto } from './dto/query-user.dto';
-import { UpdateUserDto } from './dto/update-user.dto';
+} from "@nestjs/common";
+import * as bcrypt from "bcryptjs";
+import { Filters } from "src/ai/interfaces/filter.interface";
+import { PrismaService } from "src/prisma/prisma.service";
+import { LeaveStatus } from "src/shared/constants/constant";
+import { CreateUserDto } from "./dto/create-user.dto";
+import { QueryUserDto } from "./dto/query-user.dto";
+import { UpdateUserDto } from "./dto/update-user.dto";
 
 @Injectable()
 export class UserService {
@@ -17,9 +17,9 @@ export class UserService {
   async create(createUserDto: CreateUserDto) {
     const { email, password, roleId } = createUserDto;
 
-    let existRoleId = '';
+    let existRoleId = "";
     if (roleId) {
-      const role = await this.prisma.role.findFirst({
+      const role = await this.prisma.client.role.findFirst({
         where: { id: roleId },
       });
 
@@ -28,14 +28,14 @@ export class UserService {
       }
       existRoleId = role.id;
     } else {
-      let customerRole = await this.prisma.role.findFirst({
-        where: { name: 'Customer' },
+      let customerRole = await this.prisma.client.role.findFirst({
+        where: { name: "Customer" },
       });
 
       if (!customerRole) {
-        customerRole = await this.prisma.role.create({
+        customerRole = await this.prisma.client.role.create({
           data: {
-            name: 'Customer',
+            name: "Customer",
           },
         });
       }
@@ -43,22 +43,22 @@ export class UserService {
     }
 
     // Check if email already exists
-    const existingUserByEmail = await this.prisma.user.findFirst({
+    const existingUserByEmail = await this.prisma.client.user.findFirst({
       where: { email },
     });
 
     if (existingUserByEmail) {
-      throw new BadRequestException('User already exists with this email.');
+      throw new BadRequestException("User already exists with this email.");
     }
 
     // Check if phone already exists
-    const existingUserByPhone = await this.prisma.user.findFirst({
+    const existingUserByPhone = await this.prisma.client.user.findFirst({
       where: { phone: createUserDto.phone },
     });
 
     if (existingUserByPhone) {
       throw new BadRequestException(
-        'User already exists with this phone number.',
+        "User already exists with this phone number.",
       );
     }
 
@@ -66,7 +66,7 @@ export class UserService {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    const user = await this.prisma.user.create({
+    const user = await this.prisma.client.user.create({
       data: {
         name: createUserDto.name,
         email: email,
@@ -79,13 +79,13 @@ export class UserService {
       },
     });
 
-    return { data: user, message: 'User registered successfully' };
+    return { data: user, message: "User registered successfully" };
   }
 
   async findAll(queryUserDto: QueryUserDto) {
     const { roleId, limit = 10, offset = 0 } = queryUserDto;
 
-    const role = await this.prisma.role.findFirst({
+    const role = await this.prisma.client.role.findFirst({
       where: { id: roleId },
     });
 
@@ -100,7 +100,7 @@ export class UserService {
     }
 
     const [result, total] = await Promise.all([
-      this.prisma.user.findMany({
+      this.prisma.client.user.findMany({
         where,
         take: limit,
         skip: offset,
@@ -111,7 +111,7 @@ export class UserService {
           password: true,
         },
       }),
-      this.prisma.user.count({
+      this.prisma.client.user.count({
         where,
       }),
     ]);
@@ -123,12 +123,12 @@ export class UserService {
         limit,
         offset,
       },
-      message: 'User list fetched successfully',
+      message: "User list fetched successfully",
     };
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.client.user.findFirst({
       where: { id },
       include: {
         role: true,
@@ -145,7 +145,7 @@ export class UserService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const user = await this.prisma.user.findFirst({
+    const user = await this.prisma.client.user.findFirst({
       where: { id },
     });
 
@@ -154,16 +154,16 @@ export class UserService {
     }
 
     if (user.email !== updateUserDto.email) {
-      const existingUser = await this.prisma.user.findFirst({
+      const existingUser = await this.prisma.client.user.findFirst({
         where: { email: updateUserDto.email },
       });
 
       if (existingUser) {
-        throw new BadRequestException('User already exist with this email.');
+        throw new BadRequestException("User already exist with this email.");
       }
     }
 
-    const updatedUser = await this.prisma.user.update({
+    const updatedUser = await this.prisma.client.user.update({
       where: { id },
       data: {
         name: updateUserDto.name,
@@ -182,10 +182,10 @@ export class UserService {
     const where: Record<string, any> = {};
 
     if (filters.userNames?.length) {
-      where.name = { in: filters.userNames, mode: 'insensitive' };
+      where.name = { in: filters.userNames, mode: "insensitive" };
     }
 
-    const users = await this.prisma.user.findMany({
+    const users = await this.prisma.client.user.findMany({
       where,
       select: {
         id: true,
@@ -193,7 +193,7 @@ export class UserService {
         email: true,
         createdAt: true,
       },
-      orderBy: { name: 'asc' },
+      orderBy: { name: "asc" },
     });
 
     return { total: users.length, users };
@@ -206,7 +206,7 @@ export class UserService {
     const startDay = new Date(today.setHours(0, 0, 0, 0));
     const endDay = new Date(today.setHours(23, 59, 59, 999));
 
-    const leavesToday = await this.prisma.leave.findMany({
+    const leavesToday = await this.prisma.client.leave.findMany({
       where: {
         status: LeaveStatus.APPROVED,
         startDate: { lte: endDay },
@@ -230,11 +230,11 @@ export class UserService {
     const startDay = new Date(today.setHours(0, 0, 0, 0));
     const endDay = new Date(today.setHours(23, 59, 59, 999));
 
-    const leaves = await this.prisma.leave.findMany({
+    const leaves = await this.prisma.client.leave.findMany({
       where: {
         createdAt: { gte: startDay, lte: endDay },
       },
-      distinct: ['userId'],
+      distinct: ["userId"],
       include: {
         user: {
           select: { id: true, name: true, email: true },

@@ -8,14 +8,14 @@ import { QueryRoleDto } from './dto/query-role.dto';
 export class RoleService {
   constructor(private readonly prisma: PrismaService) {}
   async create(createRoleDto: CreateRoleDto) {
-    const roleCheck = await this.prisma.role.findFirst({
+    const roleCheck = await this.prisma.client.role.findFirst({
       where: { name: createRoleDto.name },
     });
     if (roleCheck) {
       throw new BadRequestException('Role already exists with this name');
     }
 
-    const data = await this.prisma.role.create({
+    const data = await this.prisma.client.role.create({
       data: createRoleDto,
     });
 
@@ -30,13 +30,13 @@ export class RoleService {
       where.name = name;
     }
     const [data, total] = await Promise.all([
-      this.prisma.role.findMany({
+      this.prisma.client.role.findMany({
         where,
         take: limit,
         skip: offset,
         orderBy: { createdAt: 'desc' },
       }),
-      this.prisma.role.count({ where }),
+      this.prisma.client.role.count({ where }),
     ]);
 
     return {
@@ -47,7 +47,7 @@ export class RoleService {
   }
 
   async findOne(id: string) {
-    const roleCheck = await this.prisma.role.findFirst({
+    const roleCheck = await this.prisma.client.role.findFirst({
       where: { id },
     });
     if (!roleCheck) {
@@ -58,14 +58,14 @@ export class RoleService {
   }
 
   async update(id: string, updateRoleDto: UpdateRoleDto) {
-    const roleCheck = await this.prisma.role.findFirst({
+    const roleCheck = await this.prisma.client.role.findFirst({
       where: { id },
     });
     if (!roleCheck) {
       throw new BadRequestException('Role not found with this id');
     }
 
-    const data = await this.prisma.role.update({
+    const data = await this.prisma.client.role.update({
       where: { id },
       data: updateRoleDto,
     });
@@ -73,14 +73,14 @@ export class RoleService {
   }
 
   async remove(id: string) {
-    const roleCheck = await this.prisma.role.findFirst({
+    const roleCheck = await this.prisma.client.role.findFirst({
       where: { id },
     });
     if (!roleCheck) {
       throw new BadRequestException('Role not found with this id');
     }
 
-    const data = await this.prisma.role.delete({
+    const data = await this.prisma.client.role.delete({
       where: { id },
     });
     return { data, message: 'Role deleted successfully' };

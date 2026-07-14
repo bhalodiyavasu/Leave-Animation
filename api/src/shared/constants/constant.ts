@@ -1,7 +1,7 @@
 export const OTP_EXPIRY_TIME_IN_MINS = 10;
 
-export const EMAIL_USER = process.env.EMAIL_USER;
-export const EMAIL_PASS = process.env.EMAIL_PASS;
+export const RESEND_FROM_EMAIL =
+  process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 export const OPEN_ROUTER_API_KEY = process.env.OPEN_ROUTER_API_KEY;
 

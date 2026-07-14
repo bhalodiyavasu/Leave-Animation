@@ -1,32 +1,26 @@
-import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
+import { Injectable } from '@nestjs/common';
+import { env } from 'cloudflare:workers';
 
-@WebSocketGateway({
-  cors: { origin: 'http://localhost:3000', credentials: true },
-  namespace: '/leave',
-})
+// Mirrors the RPC methods on `LeaveSocketDurableObject` (src/leave/leave-socket.durable-object.ts).
+// That file is bundled directly by wrangler from source (see tsconfig.build.json),
+// not by `nest build`, so it can't be imported here — this interface is kept in sync by hand.
+interface LeaveSocketRpc {
+  broadcastLeaveCreate(leave: unknown): Promise<void>;
+  broadcastLeaveUpdate(userId: string, leave: unknown): Promise<void>;
+}
+
+@Injectable()
 export class LeaveGateway {
-  @WebSocketServer()
-  server: Server;
-
-  handleConnection(client: Socket) {
-    const userId = client.handshake.query.userId as string;
-    const role = client.handshake.query.role as string;
-
-    if (userId) client.join(`user_${userId}`);
-    if (role === 'Admin') client.join('admins');
+  private getStub(): LeaveSocketRpc {
+    const id = env.LEAVE_SOCKET.idFromName('leave-room');
+    return env.LEAVE_SOCKET.get(id) as unknown as LeaveSocketRpc;
   }
 
-  handleDisconnect(client: Socket) {
-    client.disconnect();
+  async emitLeaveUpdate(userId: string, leave: any) {
+    await this.getStub().broadcastLeaveUpdate(userId, leave);
   }
 
-  emitLeaveUpdate(userId: string, leave: any) {
-    this.server.to(`user_${userId}`).emit('leaveUpdate', leave);
-    this.server.to('admins').emit('leaveUpdate', leave);
-  }
-
-  emitLeaveCreate(leave: any){
-    this.server.to('admins').emit('leaveCreate', leave);
+  async emitLeaveCreate(leave: any) {
+    await this.getStub().broadcastLeaveCreate(leave);
   }
 }

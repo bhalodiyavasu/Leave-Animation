@@ -91,7 +91,9 @@ export class IntentDetectionService {
       throw new Error(`AI API error ${response.status}: ${errorBody}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
     const content = data?.choices?.[0]?.message?.content ?? '';
     this.logger.log(`AI Raw response: ${content}`);
     return content;
