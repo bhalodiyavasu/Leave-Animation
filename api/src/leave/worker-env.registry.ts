@@ -16,3 +16,15 @@ export function getWorkerEnv(): Cloudflare.Env {
   }
   return currentEnv;
 }
+
+export function getEnvVar(key: string): any {
+  try {
+    const env = getWorkerEnv();
+    if (env && (env as any)[key]) {
+      return (env as any)[key];
+    }
+  } catch {
+    // Fallback
+  }
+  return process.env[key];
+}

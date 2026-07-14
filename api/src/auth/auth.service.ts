@@ -20,6 +20,8 @@ import { LoginAuthDto } from "./dto/login-auth.dto";
 import { RegisterAuthUserDto } from "./dto/register-user.dto";
 import { VerifyOtpAuthDto } from "./dto/verify-otp-auth.dto";
 
+import { getEnvVar } from "src/leave/worker-env.registry";
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -29,7 +31,13 @@ export class AuthService {
 
   private jwtSecret = JWT_SECRET;
 
-  private resend = new Resend(process.env.RESEND_API_KEY);
+  private _resend: Resend | undefined;
+  private get resend() {
+    if (!this._resend) {
+      this._resend = new Resend(getEnvVar("RESEND_API_KEY"));
+    }
+    return this._resend;
+  }
 
   async login(loginAuthDto: LoginAuthDto) {
     const { email, password } = loginAuthDto;
