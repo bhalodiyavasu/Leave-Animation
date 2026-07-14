@@ -1,8 +1,6 @@
-// src/analytics/services/analytics.service.ts
-
 import { Injectable, Logger } from '@nestjs/common';
 import { LeaveStatus, UserRole } from 'src/shared/constants/constant';
-import { PrismaService } from '../../prisma/prisma.service';
+import { MongoService } from 'src/mongo/mongo.service';
 import { Filters } from '../interfaces/filter.interface';
 import { ContextBuilderService } from './context-builder.service';
 
@@ -11,7 +9,7 @@ export class AnalyticsService {
   private readonly logger = new Logger(AnalyticsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly contextBuilder: ContextBuilderService,
   ) {}
 
@@ -20,13 +18,16 @@ export class AnalyticsService {
       this.contextBuilder.resolveDateFilters(filters);
 
     const dateFilter: Record<string, any> = {};
-    if (startDate) dateFilter.gte = startDate;
-    if (endDate) dateFilter.lte = endDate;
+    if (startDate) dateFilter.$gte = startDate;
+    if (endDate) dateFilter.$lte = endDate;
     const hasDateFilter = Object.keys(dateFilter).length > 0;
 
     const baseWhere: Record<string, any> = hasDateFilter
       ? { createdAt: dateFilter }
       : {};
+
+    const customerRole = await this.mongo.db.collection('roles').findOne({ name: UserRole.CUSTOMER });
+    const userWhere = customerRole ? { roleId: customerRole._id } : {};
 
     const [
       totalLeaves,
@@ -37,20 +38,12 @@ export class AnalyticsService {
       totalUsers,
       usersOnLeaveToday,
     ] = await Promise.all([
-      this.prisma.client.leave.count({ where: baseWhere }),
-      this.prisma.client.leave.count({
-        where: { ...baseWhere, status: LeaveStatus.PENDING },
-      }),
-      this.prisma.client.leave.count({
-        where: { ...baseWhere, status: LeaveStatus.APPROVED },
-      }),
-      this.prisma.client.leave.count({
-        where: { ...baseWhere, status: LeaveStatus.REJECTED },
-      }),
-      this.prisma.client.leave.count({
-        where: { ...baseWhere, status: LeaveStatus.DELETED },
-      }),
-      this.prisma.client.user.count({ where: { role: { name: UserRole.CUSTOMER } } }),
+      this.mongo.db.collection('leaves').countDocuments(baseWhere),
+      this.mongo.db.collection('leaves').countDocuments({ ...baseWhere, status: LeaveStatus.PENDING }),
+      this.mongo.db.collection('leaves').countDocuments({ ...baseWhere, status: LeaveStatus.APPROVED }),
+      this.mongo.db.collection('leaves').countDocuments({ ...baseWhere, status: LeaveStatus.REJECTED }),
+      this.mongo.db.collection('leaves').countDocuments({ ...baseWhere, status: LeaveStatus.DELETED }),
+      this.mongo.db.collection('users').countDocuments(userWhere),
       this.getUsersOnLeaveTodayCount(),
     ]);
 
@@ -78,12 +71,10 @@ export class AnalyticsService {
     const startDay = new Date(now.setHours(0, 0, 0, 0));
     const endDay = new Date(now.setHours(23, 59, 59, 999));
 
-    return this.prisma.client.leave.count({
-      where: {
-        status: LeaveStatus.APPROVED,
-        startDate: { lte: endDay },
-        endDate: { gte: startDay },
-      },
+    return this.mongo.db.collection('leaves').countDocuments({
+      status: LeaveStatus.APPROVED,
+      startDate: { $lte: endDay },
+      endDate: { $gte: startDay },
     });
   }
 }

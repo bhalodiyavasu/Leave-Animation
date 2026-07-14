@@ -5,7 +5,7 @@ import {
 } from "@nestjs/common";
 import * as bcrypt from "bcryptjs";
 import { Filters } from "src/ai/interfaces/filter.interface";
-import { PrismaService } from "src/prisma/prisma.service";
+import { MongoService } from "src/mongo/mongo.service";
 import { LeaveStatus } from "src/shared/constants/constant";
 import { CreateUserDto } from "./dto/create-user.dto";
 import { QueryUserDto } from "./dto/query-user.dto";
@@ -13,140 +13,166 @@ import { UpdateUserDto } from "./dto/update-user.dto";
 
 @Injectable()
 export class UserService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private mongo: MongoService) {}
   async create(createUserDto: CreateUserDto) {
     const { email, password, roleId } = createUserDto;
 
-    let existRoleId = "";
+    let existRoleId: any = null;
     if (roleId) {
-      const role = await this.prisma.client.role.findFirst({
-        where: { id: roleId },
+      const role = await this.mongo.db.collection("roles").findOne({
+        _id: this.mongo.toObjectId(roleId),
       });
 
       if (!role) {
         throw new NotFoundException(`Role with ID ${roleId} not found`);
       }
-      existRoleId = role.id;
+      existRoleId = role._id;
     } else {
-      let customerRole = await this.prisma.client.role.findFirst({
-        where: { name: "Customer" },
+      let customerRole = await this.mongo.db.collection("roles").findOne({
+        name: "Customer",
       });
 
       if (!customerRole) {
-        customerRole = await this.prisma.client.role.create({
-          data: {
-            name: "Customer",
-          },
+        const res = await this.mongo.db.collection("roles").insertOne({
+          name: "Customer",
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
+        existRoleId = res.insertedId;
+      } else {
+        existRoleId = customerRole._id;
       }
-      existRoleId = customerRole.id;
     }
 
     // Check if email already exists
-    const existingUserByEmail = await this.prisma.client.user.findFirst({
-      where: { email },
-    });
+    const existingUserByEmail = await this.mongo.db
+      .collection("users")
+      .findOne({ email });
 
     if (existingUserByEmail) {
       throw new BadRequestException("User already exists with this email.");
     }
 
     // Check if phone already exists
-    const existingUserByPhone = await this.prisma.client.user.findFirst({
-      where: { phone: createUserDto.phone },
-    });
+    if (createUserDto.phone) {
+      const existingUserByPhone = await this.mongo.db
+        .collection("users")
+        .findOne({
+          phone: createUserDto.phone,
+        });
 
-    if (existingUserByPhone) {
-      throw new BadRequestException(
-        "User already exists with this phone number.",
-      );
+      if (existingUserByPhone) {
+        throw new BadRequestException(
+          "User already exists with this phone number.",
+        );
+      }
     }
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Create user
-    const user = await this.prisma.client.user.create({
-      data: {
-        name: createUserDto.name,
-        email: email,
-        password: hashedPassword,
-        phone: createUserDto.phone,
-        roleId: existRoleId,
-      },
-      include: {
-        role: true,
-      },
-    });
+    const userDoc = {
+      name: createUserDto.name,
+      email: email,
+      password: hashedPassword,
+      phone: createUserDto.phone || null,
+      roleId: existRoleId,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-    return { data: user, message: "User registered successfully" };
+    const res = await this.mongo.db.collection("users").insertOne(userDoc);
+
+    // Fetch user and include role
+    const createdUser = await this.mongo.db
+      .collection("users")
+      .findOne({ _id: res.insertedId });
+    if (createdUser) {
+      const role = await this.mongo.db
+        .collection("roles")
+        .findOne({ _id: createdUser.roleId });
+      createdUser.role = this.mongo.mapDoc(role);
+    }
+
+    return {
+      data: this.mongo.mapDoc(createdUser),
+      message: "User registered successfully",
+    };
   }
 
   async findAll(queryUserDto: QueryUserDto) {
     const { roleId, limit = 10, offset = 0 } = queryUserDto;
 
-    const role = await this.prisma.client.role.findFirst({
-      where: { id: roleId },
-    });
-
-    if (!role) {
-      throw new NotFoundException(`Role with ID ${roleId} not found`);
-    }
-
-    const where: { roleId?: string } = {};
-
+    const where: any = {};
     if (roleId) {
-      where.roleId = roleId;
+      const role = await this.mongo.db.collection("roles").findOne({
+        _id: this.mongo.toObjectId(roleId),
+      });
+
+      if (!role) {
+        throw new NotFoundException(`Role with ID ${roleId} not found`);
+      }
+      where.roleId = role._id;
     }
 
-    const [result, total] = await Promise.all([
-      this.prisma.client.user.findMany({
-        where,
-        take: limit,
-        skip: offset,
-        include: {
-          role: true,
-        },
-        omit: {
-          password: true,
-        },
-      }),
-      this.prisma.client.user.count({
-        where,
-      }),
+    const [rawUsers, total] = await Promise.all([
+      this.mongo.db
+        .collection("users")
+        .find(where)
+        .skip(Number(offset))
+        .limit(Number(limit))
+        .toArray(),
+      this.mongo.db.collection("users").countDocuments(where),
     ]);
 
+    const users = this.mongo.mapDocs(rawUsers);
+
+    // Populate role info and remove password
+    for (const u of users) {
+      delete u.password;
+      if (u.roleId) {
+        const role = await this.mongo.db
+          .collection("roles")
+          .findOne({ _id: u.roleId });
+        u.role = this.mongo.mapDoc(role);
+      }
+    }
+
     return {
-      data: result,
+      data: users,
       pagination: {
         total,
-        limit,
-        offset,
+        limit: Number(limit),
+        offset: Number(offset),
       },
       message: "User list fetched successfully",
     };
   }
 
   async findOne(id: string) {
-    const user = await this.prisma.client.user.findFirst({
-      where: { id },
-      include: {
-        role: true,
-      },
-      omit: {
-        password: true,
-      },
+    const user = await this.mongo.db.collection("users").findOne({
+      _id: this.mongo.toObjectId(id),
     });
 
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
-    return user;
+
+    delete user.password;
+    if (user.roleId) {
+      const role = await this.mongo.db
+        .collection("roles")
+        .findOne({ _id: user.roleId });
+      user.role = this.mongo.mapDoc(role);
+    }
+
+    return this.mongo.mapDoc(user);
   }
 
   async update(id: string, updateUserDto: UpdateUserDto) {
-    const user = await this.prisma.client.user.findFirst({
-      where: { id },
+    const user = await this.mongo.db.collection("users").findOne({
+      _id: this.mongo.toObjectId(id),
     });
 
     if (!user) {
@@ -154,8 +180,8 @@ export class UserService {
     }
 
     if (user.email !== updateUserDto.email) {
-      const existingUser = await this.prisma.client.user.findFirst({
-        where: { email: updateUserDto.email },
+      const existingUser = await this.mongo.db.collection("users").findOne({
+        email: updateUserDto.email,
       });
 
       if (existingUser) {
@@ -163,17 +189,26 @@ export class UserService {
       }
     }
 
-    const updatedUser = await this.prisma.client.user.update({
-      where: { id },
-      data: {
-        name: updateUserDto.name,
-        email: updateUserDto.email,
-        phone: updateUserDto.phone,
-        roleId: updateUserDto.roleId,
-      },
+    const updateData: any = {
+      name: updateUserDto.name,
+      email: updateUserDto.email,
+      phone: updateUserDto.phone,
+      updatedAt: new Date(),
+    };
+
+    if (updateUserDto.roleId) {
+      updateData.roleId = this.mongo.toObjectId(updateUserDto.roleId);
+    }
+
+    await this.mongo.db
+      .collection("users")
+      .updateOne({ _id: this.mongo.toObjectId(id) }, { $set: updateData });
+
+    const updatedUser = await this.mongo.db.collection("users").findOne({
+      _id: this.mongo.toObjectId(id),
     });
 
-    return updatedUser;
+    return this.mongo.mapDoc(updatedUser);
   }
 
   // AI
@@ -182,21 +217,17 @@ export class UserService {
     const where: Record<string, any> = {};
 
     if (filters.userNames?.length) {
-      where.name = { in: filters.userNames, mode: "insensitive" };
+      where.name = { $in: filters.userNames };
     }
 
-    const users = await this.prisma.client.user.findMany({
-      where,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-      },
-      orderBy: { name: "asc" },
-    });
+    const rawUsers = await this.mongo.db
+      .collection("users")
+      .find(where)
+      .project({ id: 1, name: 1, email: 1, createdAt: 1 })
+      .sort({ name: 1 })
+      .toArray();
 
-    return { total: users.length, users };
+    return { total: rawUsers.length, users: this.mongo.mapDocs(rawUsers) };
   }
 
   // ─── Users On Leave Today ─────────────────────────────────────────────────
@@ -206,20 +237,29 @@ export class UserService {
     const startDay = new Date(today.setHours(0, 0, 0, 0));
     const endDay = new Date(today.setHours(23, 59, 59, 999));
 
-    const leavesToday = await this.prisma.client.leave.findMany({
-      where: {
+    const leavesToday = await this.mongo.db
+      .collection("leaves")
+      .find({
         status: LeaveStatus.APPROVED,
-        startDate: { lte: endDay },
-        endDate: { gte: startDay },
-      },
-      include: {
-        user: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-    });
+        startDate: { $lte: endDay },
+        endDate: { $gte: startDay },
+      })
+      .toArray();
 
-    const users = leavesToday.map((l) => l.user);
+    const users: any[] = [];
+    for (const l of leavesToday) {
+      const user = await this.mongo.db
+        .collection("users")
+        .findOne({ _id: l.userId });
+      if (user) {
+        users.push({
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+        });
+      }
+    }
+
     return { total: users.length, users };
   }
 
@@ -230,19 +270,30 @@ export class UserService {
     const startDay = new Date(today.setHours(0, 0, 0, 0));
     const endDay = new Date(today.setHours(23, 59, 59, 999));
 
-    const leaves = await this.prisma.client.leave.findMany({
-      where: {
-        createdAt: { gte: startDay, lte: endDay },
-      },
-      distinct: ["userId"],
-      include: {
-        user: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-    });
+    const leaves = await this.mongo.db
+      .collection("leaves")
+      .find({
+        createdAt: { $gte: startDay, $lte: endDay },
+      })
+      .toArray();
 
-    const users = leaves.map((l) => l.user);
+    // Deduplicate by userId
+    const userIds = [...new Set(leaves.map((l) => l.userId.toString()))];
+
+    const users: any[] = [];
+    for (const userId of userIds) {
+      const user = await this.mongo.db
+        .collection("users")
+        .findOne({ _id: this.mongo.toObjectId(userId) });
+      if (user) {
+        users.push({
+          id: user._id.toString(),
+          name: user.name,
+          email: user.email,
+        });
+      }
+    }
+
     return { total: users.length, users };
   }
 }

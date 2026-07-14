@@ -4,7 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { LeaveModule } from './leave/leave.module';
-import { PrismaModule } from './prisma/prisma.module';
+import { MongoModule } from './mongo/mongo.module';
 import { RoleModule } from './role/role.module';
 import { UserModule } from './user/user.module';
 import { AiModule } from './ai/ai.module';
@@ -15,7 +15,7 @@ import { AiModule } from './ai/ai.module';
     AuthModule,
     UserModule,
     RoleModule,
-    PrismaModule,
+    MongoModule,
     LeaveModule,
     AiModule,
   ],

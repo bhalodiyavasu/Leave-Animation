@@ -7,7 +7,7 @@ import {
 import * as bcrypt from "bcryptjs";
 import * as jwt from "jsonwebtoken";
 import { Resend } from "resend";
-import { PrismaService } from "src/prisma/prisma.service";
+import { MongoService } from "src/mongo/mongo.service";
 import {
   OTP_EXPIRY_TIME_IN_MINS,
   RESEND_FROM_EMAIL,
@@ -19,17 +19,18 @@ import { ForgotPasswordAuthDto } from "./dto/forgot-password.dto";
 import { LoginAuthDto } from "./dto/login-auth.dto";
 import { RegisterAuthUserDto } from "./dto/register-user.dto";
 import { VerifyOtpAuthDto } from "./dto/verify-otp-auth.dto";
-
 import { getEnvVar } from "src/leave/worker-env.registry";
 
 @Injectable()
 export class AuthService {
   constructor(
-    private prisma: PrismaService,
+    private mongo: MongoService,
     private helperService: HelperServices,
   ) {}
 
-  private jwtSecret = JWT_SECRET;
+  private get jwtSecret() {
+    return getEnvVar("JWT_SECRET") || JWT_SECRET;
+  }
 
   private _resend: Resend | undefined;
   private get resend() {
@@ -43,18 +44,8 @@ export class AuthService {
     const { email, password } = loginAuthDto;
 
     try {
-      const user = await this.prisma.client.user.findUnique({
-        where: {
-          email,
-        },
-        include: {
-          role: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
+      const user = await this.mongo.db.collection("users").findOne({
+        email,
       });
 
       if (!user) {
@@ -67,8 +58,15 @@ export class AuthService {
         throw new UnauthorizedException("Invalid credentials");
       }
 
+      if (user.roleId) {
+        const role = await this.mongo.db.collection("roles").findOne({
+          _id: user.roleId,
+        });
+        user.role = this.mongo.mapDoc(role);
+      }
+
       const payload = {
-        id: user.id,
+        id: user._id.toString(),
         email: user.email,
       };
 
@@ -77,7 +75,7 @@ export class AuthService {
       });
 
       const userWithoutPassword = {
-        id: user.id,
+        id: user._id.toString(),
         name: user.name,
         email: user.email,
         phone: user.phone,
@@ -102,10 +100,8 @@ export class AuthService {
       registerAuthUserDto;
 
     try {
-      const user = await this.prisma.client.user.findUnique({
-        where: {
-          email,
-        },
+      const user = await this.mongo.db.collection("users").findOne({
+        email,
       });
 
       if (user) {
@@ -120,28 +116,46 @@ export class AuthService {
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
-      const createdUser = await this.prisma.client.user.create({
-        data: {
-          email,
-          password: hashedPassword,
-          name,
-          phone,
-          role: {
-            connectOrCreate: {
-              where: {
-                name: "User",
-              },
-              create: {
-                name: "User",
-              },
-            },
-          },
-        },
-      });
+      let userRole = await this.mongo.db
+        .collection("roles")
+        .findOne({ name: "User" });
+      if (!userRole) {
+        const res = await this.mongo.db.collection("roles").insertOne({
+          name: "User",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        userRole = { _id: res.insertedId, name: "User" } as any;
+      }
+
+      const userDoc = {
+        email,
+        password: hashedPassword,
+        name,
+        phone: phone || null,
+        roleId: userRole!._id,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const userRes = await this.mongo.db
+        .collection("users")
+        .insertOne(userDoc);
+      const createdUser = await this.mongo.db
+        .collection("users")
+        .findOne({ _id: userRes.insertedId });
+      if (createdUser && createdUser.roleId) {
+        const role = await this.mongo.db
+          .collection("roles")
+          .findOne({ _id: createdUser.roleId });
+        createdUser.role = this.mongo.mapDoc(role);
+      }
+
+      const mappedUser = this.mongo.mapDoc(createdUser);
 
       const payload = {
-        id: createdUser.id,
-        email: createdUser.email,
+        id: mappedUser.id,
+        email: mappedUser.email,
       };
 
       const token = jwt.sign(payload, this.jwtSecret, {
@@ -149,10 +163,11 @@ export class AuthService {
       });
 
       const userWithoutPassword = {
-        id: createdUser.id,
-        name: createdUser.name,
-        email: createdUser.email,
-        phone: createdUser.phone,
+        id: mappedUser.id,
+        name: mappedUser.name,
+        email: mappedUser.email,
+        phone: mappedUser.phone,
+        role: mappedUser.role,
       };
 
       return {
@@ -172,10 +187,8 @@ export class AuthService {
     const { email } = forgotPasswordAuthDto;
 
     try {
-      const user = await this.prisma.client.user.findFirst({
-        where: {
-          email,
-        },
+      const user = await this.mongo.db.collection("users").findOne({
+        email,
       });
 
       if (!user) {
@@ -187,31 +200,32 @@ export class AuthService {
         Date.now() + OTP_EXPIRY_TIME_IN_MINS * 60 * 1000,
       );
 
-      const existPasswordReset =
-        await this.prisma.client.passwordReset.findFirst({
-          where: {
-            email,
-          },
+      const existPasswordReset = await this.mongo.db
+        .collection("passwordResets")
+        .findOne({
+          email,
         });
 
       if (existPasswordReset) {
-        await this.prisma.client.passwordReset.update({
-          where: {
-            id: existPasswordReset.id,
+        await this.mongo.db.collection("passwordResets").updateOne(
+          { _id: existPasswordReset._id },
+          {
+            $set: {
+              otp,
+              expiresAt,
+              isVerified: false,
+              updatedAt: new Date(),
+            },
           },
-          data: {
-            otp,
-            expiresAt,
-            isVerified: false,
-          },
-        });
+        );
       } else {
-        await this.prisma.client.passwordReset.create({
-          data: {
-            email,
-            otp,
-            expiresAt,
-          },
+        await this.mongo.db.collection("passwordResets").insertOne({
+          email,
+          otp,
+          expiresAt,
+          isVerified: false,
+          createdAt: new Date(),
+          updatedAt: new Date(),
         });
       }
 
@@ -239,12 +253,11 @@ export class AuthService {
     const { email, otp } = verifyOtpAuthDto;
 
     try {
-      const existPasswordReset =
-        await this.prisma.client.passwordReset.findFirst({
-          where: {
-            email,
-            otp,
-          },
+      const existPasswordReset = await this.mongo.db
+        .collection("passwordResets")
+        .findOne({
+          email,
+          otp,
         });
 
       if (!existPasswordReset) {
@@ -255,13 +268,16 @@ export class AuthService {
         throw new UnauthorizedException("OTP has expired");
       }
 
-      await this.prisma.client.passwordReset.update({
-        where: { id: existPasswordReset.id },
-        data: {
-          isVerified: true,
-          otp: "",
+      await this.mongo.db.collection("passwordResets").updateOne(
+        { _id: existPasswordReset._id },
+        {
+          $set: {
+            isVerified: true,
+            otp: "",
+            updatedAt: new Date(),
+          },
         },
-      });
+      );
 
       return {
         message: "OTP verified successfully!",
@@ -280,11 +296,10 @@ export class AuthService {
     const { email, newPassword, confirmPassword } = changePasswordDto;
 
     try {
-      const existPasswordReset =
-        await this.prisma.client.passwordReset.findFirst({
-          where: {
-            email,
-          },
+      const existPasswordReset = await this.mongo.db
+        .collection("passwordResets")
+        .findOne({
+          email,
         });
 
       if (!existPasswordReset) {
@@ -301,23 +316,25 @@ export class AuthService {
 
       const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-      await this.prisma.client.user.update({
-        where: {
-          email,
+      await this.mongo.db.collection("users").updateOne(
+        { email },
+        {
+          $set: {
+            password: hashedPassword,
+            updatedAt: new Date(),
+          },
         },
-        data: {
-          password: hashedPassword,
-        },
-      });
+      );
 
-      await this.prisma.client.passwordReset.update({
-        where: {
-          id: existPasswordReset.id,
+      await this.mongo.db.collection("passwordResets").updateOne(
+        { _id: existPasswordReset._id },
+        {
+          $set: {
+            isVerified: false,
+            updatedAt: new Date(),
+          },
         },
-        data: {
-          isVerified: false,
-        },
-      });
+      );
 
       return {
         message: "Password changed successfully!",
@@ -338,10 +355,10 @@ export class AuthService {
       throw new UnauthorizedException("Token payload is missing user id");
     }
 
-    const user = await this.prisma.client.user.findUnique({
-      where: { id: userId },
+    const user = await this.mongo.db.collection("users").findOne({
+      _id: this.mongo.toObjectId(userId),
     });
 
-    return user;
+    return this.mongo.mapDoc(user);
   }
 }

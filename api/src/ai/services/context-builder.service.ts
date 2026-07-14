@@ -12,7 +12,7 @@ export interface ResolvedDateRange {
 export class ContextBuilderService {
   /**
    * Resolves the filter's date/startDate/endDate keywords into actual Date objects
-   * that Prisma can use in queries.
+   * that we can use in database queries.
    */
   resolveDateFilters(filters: Filters): {
     startDate: Date | null;

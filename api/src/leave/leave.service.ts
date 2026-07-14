@@ -6,9 +6,8 @@ import {
 } from '@nestjs/common';
 import { Filters } from 'src/ai/interfaces/filter.interface';
 import { ContextBuilderService } from 'src/ai/services/context-builder.service';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { MongoService } from 'src/mongo/mongo.service';
 import { LeaveStatus } from 'src/shared/constants/constant';
-// import { LeaveStatus } from '@prisma/client';
 import { CreateLeaveDto } from './dto/create-leave.dto';
 import { QueryLeaveDto } from './dto/query-leave.dto';
 import { UpdateLeaveDto } from './dto/update-leave.dto';
@@ -19,33 +18,43 @@ export class LeaveService {
   private readonly logger = new Logger(LeaveService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly mongo: MongoService,
     private readonly leaveGateway: LeaveGateway,
     private readonly contextBuilder: ContextBuilderService,
   ) {}
+
   async create(createLeaveDto: CreateLeaveDto, userId: string) {
-    const user = await this.prisma.client.user.findUnique({ where: { id: userId } });
+    const user = await this.mongo.db.collection('users').findOne({
+      _id: this.mongo.toObjectId(userId),
+    });
 
     if (!user) {
       throw new NotFoundException(`User with id ${userId} not found`);
     }
 
-    const leave = await this.prisma.client.leave.create({
-      data: {
-        title: createLeaveDto.title,
-        reason: createLeaveDto.reason || null,
-        startDate: new Date(createLeaveDto.startDate),
-        endDate: new Date(createLeaveDto.endDate || createLeaveDto.startDate),
-        userId: user.id,
-      },
-      include: {
-        user: true,
-      },
-    });
+    const leaveDoc = {
+      title: createLeaveDto.title,
+      reason: createLeaveDto.reason || null,
+      status: LeaveStatus.PENDING,
+      startDate: new Date(createLeaveDto.startDate),
+      endDate: new Date(createLeaveDto.endDate || createLeaveDto.startDate),
+      userId: user._id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
 
-    this.leaveGateway.emitLeaveCreate(leave).catch(() => {});
+    const res = await this.mongo.db.collection('leaves').insertOne(leaveDoc);
+    const leave = await this.mongo.db.collection('leaves').findOne({ _id: res.insertedId });
+    if (leave) {
+      const u = await this.mongo.db.collection('users').findOne({ _id: leave.userId });
+      leave.user = this.mongo.mapDoc(u);
+    }
 
-    return { data: leave, message: 'Leave created successfully' };
+    const mappedLeave = this.mongo.mapDoc(leave);
+
+    this.leaveGateway.emitLeaveCreate(mappedLeave).catch(() => {});
+
+    return { data: mappedLeave, message: 'Leave created successfully' };
   }
 
   async findAll(query: QueryLeaveDto, userId?: string) {
@@ -53,49 +62,57 @@ export class LeaveService {
     const where: any = {};
 
     if (status) where.status = status;
-    if (userId) where.userId = userId;
+    if (userId) where.userId = this.mongo.toObjectId(userId);
 
-    const [data, total] = await Promise.all([
-      this.prisma.client.leave.findMany({
-        where,
-        take: Number(limit),
-        skip: Number(offset),
-        orderBy: { createdAt: 'desc' },
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              phone: true,
-            },
-          },
-        },
-      }),
-      this.prisma.client.leave.count({ where }),
+    const [rawLeaves, total] = await Promise.all([
+      this.mongo.db.collection('leaves')
+        .find(where)
+        .sort({ createdAt: -1 })
+        .skip(Number(offset))
+        .limit(Number(limit))
+        .toArray(),
+      this.mongo.db.collection('leaves').countDocuments(where),
     ]);
+
+    const data = this.mongo.mapDocs(rawLeaves);
+
+    for (const l of data) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true, email: true, phone: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
 
     return {
       data,
-      pagination: { total, limit, offset },
+      pagination: { total, limit: Number(limit), offset: Number(offset) },
       message: 'Leaves fetched successfully',
     };
   }
 
   async findOne(id: string) {
-    const leaveCheck = await this.prisma.client.leave.findFirst({
-      where: { id },
-      include: { user: true },
+    const leaveCheck = await this.mongo.db.collection('leaves').findOne({
+      _id: this.mongo.toObjectId(id),
     });
     if (!leaveCheck) {
       throw new BadRequestException('Leave not found with this id');
     }
 
-    return { data: leaveCheck, message: 'Leave fetched successfully' };
+    if (leaveCheck.userId) {
+      const u = await this.mongo.db.collection('users').findOne({ _id: leaveCheck.userId });
+      leaveCheck.user = this.mongo.mapDoc(u);
+    }
+
+    return { data: this.mongo.mapDoc(leaveCheck), message: 'Leave fetched successfully' };
   }
 
   async update(id: string, updateLeaveDto: UpdateLeaveDto) {
-    const leaveCheck = await this.prisma.client.leave.findFirst({ where: { id } });
+    const leaveCheck = await this.mongo.db.collection('leaves').findOne({
+      _id: this.mongo.toObjectId(id),
+    });
     if (!leaveCheck) {
       throw new BadRequestException('Leave not found with this id');
     }
@@ -109,31 +126,54 @@ export class LeaveService {
     }
 
     if (leaveCheck.status === LeaveStatus.PENDING) {
-      const data = await this.prisma.client.leave.update({
-        where: { id },
-        data: updateLeaveDto,
+      const updateData = {
+        ...updateLeaveDto,
+        updatedAt: new Date(),
+      };
+
+      await this.mongo.db.collection('leaves').updateOne(
+        { _id: this.mongo.toObjectId(id) },
+        { $set: updateData }
+      );
+
+      const data = await this.mongo.db.collection('leaves').findOne({
+        _id: this.mongo.toObjectId(id),
       });
 
-      this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data).catch(() => {});
+      const mappedData = this.mongo.mapDoc(data);
 
-      return { data, message: 'Leave updated successfully' };
+      this.leaveGateway.emitLeaveUpdate(leaveCheck.userId.toString(), mappedData).catch(() => {});
+
+      return { data: mappedData, message: 'Leave updated successfully' };
     }
   }
 
   async remove(id: string) {
-    const leaveCheck = await this.prisma.client.leave.findFirst({ where: { id } });
+    const leaveCheck = await this.mongo.db.collection('leaves').findOne({
+      _id: this.mongo.toObjectId(id),
+    });
     if (!leaveCheck) {
       throw new BadRequestException('Leave not found with this id');
     }
 
-    const data = await this.prisma.client.leave.update({
-      where: { id },
-      data: {
-        status: LeaveStatus.DELETED,
-      },
+    await this.mongo.db.collection('leaves').updateOne(
+      { _id: this.mongo.toObjectId(id) },
+      {
+        $set: {
+          status: LeaveStatus.DELETED,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    const data = await this.mongo.db.collection('leaves').findOne({
+      _id: this.mongo.toObjectId(id),
     });
-    this.leaveGateway.emitLeaveUpdate(leaveCheck.userId, data).catch(() => {});
-    return { data, message: 'Leave deleted successfully' };
+
+    const mappedData = this.mongo.mapDoc(data);
+
+    this.leaveGateway.emitLeaveUpdate(leaveCheck.userId.toString(), mappedData).catch(() => {});
+    return { data: mappedData, message: 'Leave deleted successfully' };
   }
 
   // AI
@@ -144,15 +184,21 @@ export class LeaveService {
 
     this.logger.log(`Querying leaves with filters: ${JSON.stringify(where)}`);
 
-    const leaves = await this.prisma.client.leave.findMany({
-      where,
-      include: {
-        user: {
-          select: { id: true, name: true, email: true },
-        },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const rawLeaves = await this.mongo.db.collection('leaves')
+      .find(where)
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const leaves = this.mongo.mapDocs(rawLeaves);
+    for (const l of leaves) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true, email: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
 
     return {
       total: leaves.length,
@@ -168,10 +214,9 @@ export class LeaveService {
     // Always scope updates to PENDING leaves
     where.status = LeaveStatus.PENDING;
 
-    const targets = await this.prisma.client.leave.findMany({
-      where,
-      select: { id: true },
-    });
+    const targets = await this.mongo.db.collection('leaves')
+      .find(where, { projection: { _id: 1 } })
+      .toArray();
 
     if (targets.length === 0) {
       return {
@@ -181,24 +226,38 @@ export class LeaveService {
       };
     }
 
-    const ids = targets.map((l) => l.id);
+    const ids = targets.map((l) => l._id);
 
-    await this.prisma.client.leave.updateMany({
-      where: { id: { in: ids } },
-      data: {
-        status: LeaveStatus.APPROVED,
-      },
-    });
+    await this.mongo.db.collection('leaves').updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          status: LeaveStatus.APPROVED,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.client.leave.findMany({
-      where: { id: { in: ids } },
-      include: { user: { select: { id: true, name: true, email: true } } },
-      orderBy: { startDate: 'asc' },
-    });
+    const rawUpdatedLeaves = await this.mongo.db.collection('leaves')
+      .find({ _id: { $in: ids } })
+      .sort({ startDate: 1 })
+      .toArray();
 
-    this.logger.log(`Approved ${ids.length} leaves: ${ids.join(', ')}`);
-    return { updatedCount: ids.length, leaveIds: ids, leaves: updatedLeaves };
+    const updatedLeaves = this.mongo.mapDocs(rawUpdatedLeaves);
+    for (const l of updatedLeaves) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true, email: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
+
+    const stringIds = ids.map((id) => id.toString());
+    this.logger.log(`Approved ${ids.length} leaves: ${stringIds.join(', ')}`);
+    return { updatedCount: ids.length, leaveIds: stringIds, leaves: updatedLeaves };
   }
 
   // ─── Reject Leaves ────────────────────────────────────────────────────────────
@@ -207,10 +266,9 @@ export class LeaveService {
     const where = await this.buildWhereClause(filters);
     where.status = LeaveStatus.PENDING;
 
-    const targets = await this.prisma.client.leave.findMany({
-      where,
-      select: { id: true },
-    });
+    const targets = await this.mongo.db.collection('leaves')
+      .find(where, { projection: { _id: 1 } })
+      .toArray();
 
     if (targets.length === 0) {
       return {
@@ -220,56 +278,85 @@ export class LeaveService {
       };
     }
 
-    const ids = targets.map((l) => l.id);
+    const ids = targets.map((l) => l._id);
 
-    await this.prisma.client.leave.updateMany({
-      where: { id: { in: ids } },
-      data: {
-        status: LeaveStatus.REJECTED,
-      },
-    });
+    await this.mongo.db.collection('leaves').updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          status: LeaveStatus.REJECTED,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.client.leave.findMany({
-      where: { id: { in: ids } },
-      include: { user: { select: { id: true, name: true, email: true } } },
-      orderBy: { startDate: 'asc' },
-    });
+    const rawUpdatedLeaves = await this.mongo.db.collection('leaves')
+      .find({ _id: { $in: ids } })
+      .sort({ startDate: 1 })
+      .toArray();
 
-    this.logger.log(`Rejected ${ids.length} leaves: ${ids.join(', ')}`);
-    return { updatedCount: ids.length, leaveIds: ids, leaves: updatedLeaves };
+    const updatedLeaves = this.mongo.mapDocs(rawUpdatedLeaves);
+    for (const l of updatedLeaves) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true, email: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
+
+    const stringIds = ids.map((id) => id.toString());
+    this.logger.log(`Rejected ${ids.length} leaves: ${stringIds.join(', ')}`);
+    return { updatedCount: ids.length, leaveIds: stringIds, leaves: updatedLeaves };
   }
 
   // ─── Cancel Leaves ────────────────────────────────────────────────────────────
 
   async cancelLeaves(filters: Filters) {
     const where = await this.buildWhereClause(filters);
-    where.status = { in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] } as any;
+    where.status = { $in: [LeaveStatus.PENDING, LeaveStatus.APPROVED] };
 
-    const targets = await this.prisma.client.leave.findMany({
-      where,
-      select: { id: true },
-    });
+    const targets = await this.mongo.db.collection('leaves')
+      .find(where, { projection: { _id: 1 } })
+      .toArray();
 
     if (targets.length === 0) {
       return { updatedCount: 0, leaveIds: [] };
     }
 
-    const ids = targets.map((l) => l.id);
+    const ids = targets.map((l) => l._id);
 
-    await this.prisma.client.leave.updateMany({
-      where: { id: { in: ids } },
-      data: { status: LeaveStatus.DELETED },
-    });
+    await this.mongo.db.collection('leaves').updateMany(
+      { _id: { $in: ids } },
+      {
+        $set: {
+          status: LeaveStatus.DELETED,
+          updatedAt: new Date(),
+        },
+      }
+    );
 
     // Fetch updated leave records with user info
-    const updatedLeaves = await this.prisma.client.leave.findMany({
-      where: { id: { in: ids } },
-      include: { user: { select: { id: true, name: true, email: true } } },
-      orderBy: { startDate: 'asc' },
-    });
+    const rawUpdatedLeaves = await this.mongo.db.collection('leaves')
+      .find({ _id: { $in: ids } })
+      .sort({ startDate: 1 })
+      .toArray();
 
-    return { updatedCount: ids.length, leaveIds: ids, leaves: updatedLeaves };
+    const updatedLeaves = this.mongo.mapDocs(rawUpdatedLeaves);
+    for (const l of updatedLeaves) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true, email: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
+
+    const stringIds = ids.map((id) => id.toString());
+    return { updatedCount: ids.length, leaveIds: stringIds, leaves: updatedLeaves };
   }
 
   // ─── Count Employees On Leave Today ──────────────────────────────────────────
@@ -280,16 +367,24 @@ export class LeaveService {
     const endOfDay = new Date();
     endOfDay.setHours(23, 59, 59, 999);
 
-    return this.prisma.client.leave.findMany({
-      where: {
-        status: LeaveStatus.APPROVED,
-        startDate: { lte: endOfDay },
-        endDate: { gte: today },
-      },
-      include: {
-        user: { select: { id: true, name: true } },
-      },
-    });
+    const rawLeaves = await this.mongo.db.collection('leaves').find({
+      status: LeaveStatus.APPROVED,
+      startDate: { $lte: endOfDay },
+      endDate: { $gte: today },
+    }).toArray();
+
+    const leaves = this.mongo.mapDocs(rawLeaves);
+    for (const l of leaves) {
+      if (l.userId) {
+        const u = await this.mongo.db.collection('users').findOne(
+          { _id: l.userId },
+          { projection: { name: true } }
+        );
+        l.user = this.mongo.mapDoc(u);
+      }
+    }
+
+    return leaves;
   }
 
   // ─── Private: Build Prisma Where Clause ──────────────────────────────────────
@@ -316,29 +411,22 @@ export class LeaveService {
 
     // Leave IDs filter
     if (filters.leaveIds?.length) {
-      where.id = { in: filters.leaveIds };
+      where._id = { $in: filters.leaveIds.map(id => this.mongo.toObjectId(id)) };
     }
 
     // User names filter (lookup IDs first)
     if (filters.userNames?.length) {
-      const users = await this.prisma.client.user.findMany({
-        where: {
-          name: {
-            in: filters.userNames,
-            mode: 'insensitive',
-          },
-        },
-        select: { id: true },
-      });
-      where.userId = { in: users.map((u) => u.id) };
+      const regexes = filters.userNames.map((name) => new RegExp(name, 'i'));
+      const users = await this.mongo.db.collection('users').find({
+        name: { $in: regexes },
+      }).toArray();
+      where.userId = { $in: users.map((u) => u._id) };
     }
 
     // Department filter (lookup user IDs first)
     if (filters.department) {
-      const users = await this.prisma.client.user.findMany({
-        select: { id: true },
-      });
-      where.userId = { in: users.map((u) => u.id) };
+      const users = await this.mongo.db.collection('users').find({}).toArray();
+      where.userId = { $in: users.map((u) => u._id) };
     }
 
     // Leave type filter
@@ -351,22 +439,22 @@ export class LeaveService {
       this.contextBuilder.resolveDateFilters(filters);
 
     if (startDate && endDate) {
-      where.OR = [
-        { createdAt: { gte: startDate, lte: endDate } },
+      where.$or = [
+        { createdAt: { $gte: startDate, $lte: endDate } },
         {
-          startDate: { lte: endDate },
-          endDate: { gte: startDate },
+          startDate: { $lte: endDate },
+          endDate: { $gte: startDate },
         },
       ];
     } else if (startDate) {
-      where.OR = [
-        { createdAt: { gte: startDate } },
-        { endDate: { gte: startDate } },
+      where.$or = [
+        { createdAt: { $gte: startDate } },
+        { endDate: { $gte: startDate } },
       ];
     } else if (endDate) {
-      where.OR = [
-        { createdAt: { lte: endDate } },
-        { startDate: { lte: endDate } },
+      where.$or = [
+        { createdAt: { $lte: endDate } },
+        { startDate: { $lte: endDate } },
       ];
     }
 
