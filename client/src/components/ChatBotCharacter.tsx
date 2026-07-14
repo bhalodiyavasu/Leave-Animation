@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState } from 'react';
 import { Canvas } from '@react-three/fiber';
+import * as THREE from 'three';
 import VoxelCharacter from './VoxelCharacter';
 import { useCharacterStore } from '@/store/useCharacterStore';
 

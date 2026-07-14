@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type CharacterAnimation = 'idle' | 'walk' | 'wave' | 'jump' | 'talk' | 'sleep' | 'read';
+export type CharacterAnimation = 'idle' | 'walk' | 'wave' | 'jump' | 'talk' | 'sleep' | 'read' | 'thinking' | 'yawn' | 'lean';
 export type DeliveryState = 'sleeping' | 'reading' | 'delivering' | 'returning' | 'waiting';
 
 interface CharacterState {
