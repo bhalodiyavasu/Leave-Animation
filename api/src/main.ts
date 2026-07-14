@@ -1,28 +1,28 @@
-import { ValidationPipe } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from './app.module';
+import { ValidationPipe } from "@nestjs/common";
+import { NestFactory } from "@nestjs/core";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { AppModule } from "./app.module";
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   app.enableCors({
     origin: true,
-    methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
-    allowedHeaders: 'Content-Type,Accept,Authorization',
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+    allowedHeaders: "Content-Type,Accept,Authorization",
     credentials: true,
   });
 
   const config = new DocumentBuilder()
-    .setTitle('Leave Management API')
-    .setDescription('Leave Management API documentation')
+    .setTitle("Leave Management API")
+    .setDescription("Leave Management API documentation")
     .addBearerAuth()
-    .addSecurityRequirements('bearer')
-    .setVersion('1.0')
+    .addSecurityRequirements("bearer")
+    .setVersion("1.0")
     .build();
 
-  if (process.env.SWAGGER_DOCUMENTATION_AVAILABLE === 'true') {
+  if (process.env.SWAGGER_DOCUMENTATION_AVAILABLE === "true") {
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api', app, document);
+    SwaggerModule.setup("api", app, document);
   }
 
   app.useGlobalPipes(
