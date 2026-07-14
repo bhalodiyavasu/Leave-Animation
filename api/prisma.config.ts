@@ -11,6 +11,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: env("DATABASE_URL"),
+    url: process.env.DATABASE_URL || "mongodb+srv://vasu_admin:eternixAdminPass@eternixone.q1jk5mt.mongodb.net/prod_leaves?appName=eternixOne",
   },
 });
