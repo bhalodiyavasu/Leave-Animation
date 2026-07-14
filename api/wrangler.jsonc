@@ -4,6 +4,12 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-07-14",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "NODE_ENV": "production",
+    "PORT": "3030",
+    "SWAGGER_DOCUMENTATION_AVAILABLE": "true",
+    "EMAIL_USER": "yash.prolix21@gmail.com"
+  },
   "alias": {
     "@nestjs/microservices": "./stub-empty.js",
     "@nestjs/microservices/microservices-module": "./stub-empty.js",
