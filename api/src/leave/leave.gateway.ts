@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { env } from 'cloudflare:workers';
+import { getWorkerEnv } from './worker-env.registry';
 
 // Mirrors the RPC methods on `LeaveSocketDurableObject` (src/leave/leave-socket.durable-object.ts).
 // That file is bundled directly by wrangler from source (see tsconfig.build.json),
@@ -12,6 +12,7 @@ interface LeaveSocketRpc {
 @Injectable()
 export class LeaveGateway {
   private getStub(): LeaveSocketRpc {
+    const env = getWorkerEnv();
     const id = env.LEAVE_SOCKET.idFromName('leave-room');
     return env.LEAVE_SOCKET.get(id) as unknown as LeaveSocketRpc;
   }

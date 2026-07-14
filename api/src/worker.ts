@@ -4,12 +4,14 @@ import { httpServerHandler } from 'cloudflare:node';
 // bundler) cannot produce. This file and the Durable Object below have no
 // decorators, so wrangler bundles them straight from source.
 import { bootstrap } from '../dist/src/main';
+import { setWorkerEnv } from '../dist/src/leave/worker-env.registry';
 
 const ready = bootstrap();
 const expressHandler = httpServerHandler({ port: 3030 });
 
 export default {
   async fetch(request, env, ctx) {
+    setWorkerEnv(env);
     await ready;
 
     const url = new URL(request.url);
