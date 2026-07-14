@@ -1,7 +1,41 @@
-import { ValidationPipe } from "@nestjs/common";
+import {
+  ValidationPipe,
+  Catch,
+  ExceptionFilter,
+  ArgumentsHost,
+  HttpException,
+  HttpStatus,
+} from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./app.module";
+
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(exception: unknown, host: ArgumentsHost) {
+    const ctx = host.switchToHttp();
+    const response = ctx.getResponse();
+    const request = ctx.getRequest();
+
+    const status =
+      exception instanceof HttpException
+        ? exception.getStatus()
+        : HttpStatus.INTERNAL_SERVER_ERROR;
+
+    const message =
+      exception instanceof Error ? exception.message : "Internal server error";
+
+    const stack = exception instanceof Error ? exception.stack : null;
+
+    response.status(status).json({
+      statusCode: status,
+      message: message,
+      stack: stack,
+      path: request.url,
+      timestamp: new Date().toISOString(),
+    });
+  }
+}
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,6 +45,8 @@ export async function bootstrap() {
     allowedHeaders: "Content-Type,Accept,Authorization",
     credentials: true,
   });
+
+  app.useGlobalFilters(new AllExceptionsFilter());
 
   const config = new DocumentBuilder()
     .setTitle("Leave Management API")

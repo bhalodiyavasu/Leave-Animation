@@ -17,8 +17,13 @@ export class UserService {
   async create(createUserDto: CreateUserDto) {
     const { email, password, roleId } = createUserDto;
 
+    const hasRoleId = roleId && 
+                      roleId !== 'undefined' && 
+                      roleId !== 'null' && 
+                      String(roleId).trim() !== '';
+
     let existRoleId: any = null;
-    if (roleId) {
+    if (hasRoleId) {
       const role = await this.mongo.db.collection("roles").findOne({
         _id: this.mongo.toObjectId(roleId),
       });
@@ -44,7 +49,7 @@ export class UserService {
       }
     }
 
-    // Check if email already exists
+    // Check if email already  exists
     const existingUserByEmail = await this.mongo.db
       .collection("users")
       .findOne({ email });
