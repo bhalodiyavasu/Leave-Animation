@@ -7,7 +7,7 @@
   "vars": {
     "NODE_ENV": "production",
     "PORT": "3030",
-    "SWAGGER_DOCUMENTATION_AVAILABLE": "true",
+    "SWAGGER_DOCUMENTATION_AVAILABLE": "false",
     "EMAIL_USER": "yash.prolix21@gmail.com"
   },
   "alias": {
