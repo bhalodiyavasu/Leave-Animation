@@ -1,1 +1,1 @@
-export const LEAVE_API_HOST = "https://leave-management-backend.vasu-prolix.workers.dev";
+export const LEAVE_API_HOST = process.env.NEXT_PUBLIC_LEAVE_MANAGEMENT_API || "https://test.vasu-prolix.workers.dev";
